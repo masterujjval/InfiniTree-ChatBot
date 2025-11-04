@@ -21,5 +21,5 @@ def query_gemini(prompt, temperature=0.7, top_p=0.9, top_k=40):
         params={"key": GEMINI_API_KEY},
         json=payload
     )
-    
+
     return response.json()

@@ -5,9 +5,15 @@ import os
 import tempfile
 import logging
 from datetime import datetime
+import uuid
 
 from llm_client import query_gemini, build_prompt
 from file_processor import extract_text_from_file  # file text reader
+try:
+    from db_utils import save_chat, get_chat_history, get_sessions
+except ImportError:
+    logger.warning("Database utilities not available")
+    save_chat = get_chat_history = get_sessions = lambda *args: None
 
 app = Flask(__name__)
 CORS(app)
@@ -27,6 +33,7 @@ def generate_response():
         data_source = request.get_json() if is_json else request.form
         
         prompt = data_source.get('prompt', '').strip()
+        session_id = data_source.get('session_id', str(uuid.uuid4()))
         temperature = float(data_source.get('temperature', 0.7))
         top_p = float(data_source.get('top_p', 0.9))
         top_k = int(data_source.get('top_k', 40))
@@ -52,6 +59,13 @@ def generate_response():
         full_prompt = build_prompt(prompt, file_text)
         response = query_gemini(full_prompt, temperature, top_p, top_k)
         
+        # Save to database (optional)
+        try:
+            save_chat(session_id, prompt, response.get('response', ''))
+            response['session_id'] = session_id
+        except:
+            response['session_id'] = session_id
+        
         # Cleanup temp file
         if filepath:
             try:
@@ -66,6 +80,22 @@ def generate_response():
     except Exception as e:
         logger.error(f"Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/chats/<session_id>', methods=['GET'])
+def get_chats(session_id):
+    try:
+        chats = get_chat_history(session_id)
+        return jsonify(chats)
+    except:
+        return jsonify([])
+
+@app.route('/sessions', methods=['GET'])
+def list_sessions():
+    try:
+        sessions = get_sessions()
+        return jsonify(sessions)
+    except:
+        return jsonify([])
 
 @app.errorhandler(404)
 def not_found(error):
